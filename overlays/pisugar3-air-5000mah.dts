@@ -1,0 +1,68 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * PiSugar 3 Air with a 5000 mAh single-cell LiPo, on a Raspberry Pi's
+ * header I2C bus.
+ *
+ *   dtoverlay=pisugar3-air-5000mah
+ *   dtoverlay=pisugar3-air-5000mah,addr=0x5a    a board on another address
+ *
+ * The table is a discharge measured on one such cell in a Pi Zero 2 W
+ * device drawing about a watt, 2026-09-05: 12 h 43 min from the charger to
+ * 3.36 V, the voltage logged every minute. Each point is the median share of
+ * the run still to go while the voltage sat in a 25 mV band, so a percent is
+ * a fixed slice of *runtime* at that load. That is what a percentage is for
+ * on a board with no current sensor - but it is not an open-circuit curve,
+ * and a heavier load reads low on it, which is the safe direction. Redo it
+ * for a different cell: see README.md.
+ */
+
+/dts-v1/;
+/plugin/;
+
+/ {
+	compatible = "brcm,bcm2835";
+
+	fragment@0 {
+		target-path = "/";
+		__overlay__ {
+			pisugar3_cell: pisugar3-cell {
+				compatible = "simple-battery";
+				device-chemistry = "lithium-ion-polymer";
+				charge-full-design-microamp-hours = <5000000>;
+				voltage-min-design-microvolt = <3300000>;
+				voltage-max-design-microvolt = <4200000>;
+				ocv-capacity-celsius = <25>;
+				ocv-capacity-table-0 =
+					<4200000 100>, <4090000 95>, <4050000 94>,
+					<4025000 93>, <4000000 89>, <3975000 82>,
+					<3950000 76>, <3925000 72>, <3900000 68>,
+					<3875000 65>, <3850000 61>, <3825000 56>,
+					<3800000 50>, <3775000 45>, <3750000 40>,
+					<3725000 37>, <3700000 34>, <3675000 32>,
+					<3650000 30>, <3625000 28>, <3600000 26>,
+					<3575000 24>, <3550000 21>, <3525000 19>,
+					<3500000 17>, <3475000 14>, <3450000 12>,
+					<3425000 10>, <3400000 8>, <3375000 7>,
+					<3360000 5>, <3300000 3>, <3100000 0>;
+			};
+		};
+	};
+
+	fragment@1 {
+		target = <&i2c_arm>;
+		__overlay__ {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			pisugar3: battery@57 {
+				compatible = "pisugar,pisugar3";
+				reg = <0x57>;
+				monitored-battery = <&pisugar3_cell>;
+			};
+		};
+	};
+
+	__overrides__ {
+		addr = <&pisugar3>,"reg:0";
+	};
+};

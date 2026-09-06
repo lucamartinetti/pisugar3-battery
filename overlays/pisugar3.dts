@@ -1,0 +1,57 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * PiSugar 3 / 3 Plus on a Raspberry Pi's header I2C bus.
+ *
+ *   dtoverlay=pisugar3
+ *   dtoverlay=pisugar3,addr=0x5a    a board whose address has been changed
+ *
+ * The capacity table is the one the vendor's own daemon (pisugar-server)
+ * uses when no custom curve is configured. It is a voltage lookup for a
+ * generic cell, and on a large cell it reads high through the middle of the
+ * discharge. For a curve measured on your cell, copy this file, replace the
+ * table, and load that instead - pisugar3-air-5000mah.dts is one such copy,
+ * and README.md says how to make one.
+ */
+
+/dts-v1/;
+/plugin/;
+
+/ {
+	compatible = "brcm,bcm2835";
+
+	fragment@0 {
+		target-path = "/";
+		__overlay__ {
+			pisugar3_cell: pisugar3-cell {
+				compatible = "simple-battery";
+				device-chemistry = "lithium-ion-polymer";
+				voltage-min-design-microvolt = <3100000>;
+				voltage-max-design-microvolt = <4200000>;
+				ocv-capacity-celsius = <25>;
+				ocv-capacity-table-0 =
+					<4100000 100>, <4050000 95>, <3900000 88>,
+					<3800000 77>, <3700000 65>, <3620000 55>,
+					<3580000 49>, <3490000 26>, <3320000 5>,
+					<3100000 0>;
+			};
+		};
+	};
+
+	fragment@1 {
+		target = <&i2c_arm>;
+		__overlay__ {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			pisugar3: battery@57 {
+				compatible = "pisugar,pisugar3";
+				reg = <0x57>;
+				monitored-battery = <&pisugar3_cell>;
+			};
+		};
+	};
+
+	__overrides__ {
+		addr = <&pisugar3>,"reg:0";
+	};
+};

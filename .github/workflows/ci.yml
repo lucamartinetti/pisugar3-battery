@@ -1,0 +1,40 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    name: build, checkpatch, overlays, binding
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install kernel headers and tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q linux-headers-$(uname -r) device-tree-compiler python3-pip
+          pip3 install --user dtschema
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: fetch checkpatch
+        run: |
+          mkdir -p ~/.cache/checkpatch
+          for f in checkpatch.pl spelling.txt const_structs.checkpatch; do
+            curl -sfL -o ~/.cache/checkpatch/$f https://raw.githubusercontent.com/torvalds/linux/master/scripts/$f
+          done
+          chmod +x ~/.cache/checkpatch/checkpatch.pl
+
+      # Against the runner's own kernel: proves the source builds on a
+      # current kernel API. The Raspberry Pi build is tools/deploy.sh's job.
+      - name: build module
+        run: make modules
+
+      - name: overlays
+        run: make dtbo
+
+      - name: checkpatch, binding schema, overlays
+        run: |
+          tools/fetch-schemas.sh
+          make check CHECKPATCH=$HOME/.cache/checkpatch/checkpatch.pl

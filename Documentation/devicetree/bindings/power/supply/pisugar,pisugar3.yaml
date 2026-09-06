@@ -1,0 +1,65 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/power/supply/pisugar,pisugar3.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: PiSugar 3 battery board
+
+maintainers:
+  - Luca Martinetti <luca@luca.io>
+
+description:
+  The PiSugar 3, 3 Plus and 3 Air are UPS boards for the Raspberry Pi with a
+  single-cell lithium polymer battery, a charger, a boost converter and a
+  microcontroller on I2C that reports the cell voltage, whether external
+  power is present, whether charging is enabled, and the board temperature.
+  The board does not measure current. Capacity is derived from the voltage
+  through the monitored battery's OCV table; without one the board's own,
+  optimistic, percentage is reported instead.
+
+allOf:
+  - $ref: power-supply.yaml#
+
+properties:
+  compatible:
+    const: pisugar,pisugar3
+
+  reg:
+    maxItems: 1
+
+  monitored-battery:
+    description:
+      The cell fitted to the board. Only ocv-capacity-table-0 and the design
+      voltages and capacity are used. The PiSugar 3 and 3 Plus ship with a
+      cell; the 3 Air takes whichever cell the user fits.
+
+required:
+  - compatible
+  - reg
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    battery: battery {
+      compatible = "simple-battery";
+      device-chemistry = "lithium-ion-polymer";
+      charge-full-design-microamp-hours = <5000000>;
+      voltage-min-design-microvolt = <3300000>;
+      voltage-max-design-microvolt = <4200000>;
+      ocv-capacity-celsius = <25>;
+      ocv-capacity-table-0 = <4200000 100>, <4000000 89>, <3800000 50>,
+                             <3600000 26>, <3400000 8>, <3300000 3>;
+    };
+
+    i2c {
+      #address-cells = <1>;
+      #size-cells = <0>;
+
+      battery@57 {
+        compatible = "pisugar,pisugar3";
+        reg = <0x57>;
+        monitored-battery = <&battery>;
+      };
+    };
