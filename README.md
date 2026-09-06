@@ -76,6 +76,13 @@ rail live: `dtoverlay=pisugar3,power-off=off`.
 The countdown lives in the board, and its datasheet calls the timing
 inaccurate. On firmware v1.3.4 it has only ever been seen to run long.
 
+Proven on a Pi Zero 2 W on 2026-09-06: `poweroff` issued plugged in at
+96 %, `poweroff.target` five seconds later, off the network at thirteen,
+the rail gone at about twenty-five, and a replug booted it with the driver
+probing from the persisted overlay. Note that the handler's own log line is
+never in the journal - it fires after journald has stopped - so a serial
+console, `pstore`, or a hand on the LED is how you see it.
+
 ## Install on Raspberry Pi OS
 
 ```bash
