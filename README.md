@@ -199,6 +199,30 @@ The Raspberry Pi overlays go to the `raspberrypi/linux` tree's
 `arch/arm/boot/dts/overlays/` separately, with their README entries. Both are
 on the list; neither is sent yet.
 
+## Why C and not Rust
+
+Considered, and measured against the kernel this has to run on, 2026-09-06:
+
+- **Raspberry Pi OS ships its kernels without `CONFIG_RUST`.** The 6.18
+  `rpi-v8` config has `CONFIG_HAVE_RUST=y` and `CONFIG_RUST_IS_AVAILABLE=y`,
+  which say the toolchain *could* build Rust, and no `CONFIG_RUST=y`, which
+  says it did not. An out-of-tree Rust module needs the kernel's `core` and
+  `kernel` crates built for that exact kernel, which the headers package does
+  not carry. So a Rust driver would not load on the device this exists for
+  without rebuilding its kernel.
+- **The I2C client abstractions landed in 6.19**, one release after the Pi's
+  kernel. On 6.18 there is no safe `i2c::Driver` to write against.
+- **There is no `power_supply` abstraction in mainline Rust at all.** A Rust
+  driver would have to add one - `power_supply_desc`, the property callback,
+  `battery_info` and the OCV lookup - and get that reviewed first. That is a
+  larger, separate contribution, and a fair one to make once a first user
+  exists; a 400-line C driver is not the place to smuggle it in.
+
+The C driver is the version that runs today and the version mainline will
+take. If the abstractions arrive and Raspberry Pi OS turns Rust on, the
+driver is small enough to rewrite in an afternoon, and this repository is
+where that would happen.
+
 ## License
 
 GPL-2.0-only. See `LICENSE`.
