@@ -14,10 +14,14 @@
  * generous lookup, not a measurement, and reads well above a table measured
  * on the actual cell.
  *
- * Everything here is read-only. The board carries one register whose loss
- * is not recoverable in software - the bit that turns the output back on
- * when external power returns, on a device that may have no power button -
- * and a driver that never writes cannot lose it.
+ * The driver reads, and writes exactly once: at system power-off, when the
+ * node carries "system-power-controller", it asks the board to drop the 5V
+ * output a few seconds later. A halted Pi still draws tens of milliamps and
+ * would flatten the cell; the cut is what makes a shutdown a shutdown. The
+ * same write sets the bit that turns the output back on when external power
+ * returns - on a device with no power button that bit is the only way it
+ * ever comes back, and it is not recoverable in software once cleared, so
+ * nothing here ever clears it.
  *
  * Copyright (C) 2026 Luca Martinetti <luca@luca.io>
  */
@@ -31,12 +35,15 @@
 #include <linux/mutex.h>
 #include <linux/pm.h>
 #include <linux/power_supply.h>
+#include <linux/property.h>
+#include <linux/reboot.h>
 #include <linux/workqueue.h>
 
 #define PISUGAR3_REG_VERSION		0x00	/* 3 on a PiSugar 3 */
 #define PISUGAR3_REG_MODE		0x01	/* 0x0f: application firmware */
 #define PISUGAR3_REG_CTRL1		0x02
 #define PISUGAR3_REG_TEMP		0x04	/* degrees Celsius + 40 */
+#define PISUGAR3_REG_POWER_OFF_DELAY	0x09	/* seconds, once the output bit is cleared */
 #define PISUGAR3_REG_VOLTAGE		0x22	/* millivolts, big-endian u16 */
 #define PISUGAR3_REG_CAPACITY		0x2a	/* the board's own percentage */
 #define PISUGAR3_REG_FIRMWARE		0xe2	/* NUL-terminated ASCII, "v1.3.4" */
@@ -46,10 +53,21 @@
 
 #define PISUGAR3_CTRL1_EXTERNAL_POWER	BIT(7)
 #define PISUGAR3_CTRL1_CHARGE_ENABLE	BIT(6)
+#define PISUGAR3_CTRL1_OUTPUT_ENABLE	BIT(5)
+#define PISUGAR3_CTRL1_RESTART_ON_POWER	BIT(4)
 
 #define PISUGAR3_TEMP_OFFSET		40
 #define PISUGAR3_FIRMWARE_LEN		16
 #define PISUGAR3_POLL_MS		10000
+
+/*
+ * Seconds between the power-off handler arming the cut and the rail going.
+ * The handler runs at the end of kernel_power_off(), after userspace is gone
+ * and before machine_power_off(), so the halt is milliseconds away; the
+ * margin is for the board's countdown, which its datasheet calls inaccurate
+ * and which has been seen run long, never short.
+ */
+#define PISUGAR3_POWER_OFF_DELAY_S	5
 
 struct pisugar3_reading {
 	int voltage_uv;
@@ -270,6 +288,45 @@ static char *pisugar3_mains_supplied_to[] = {
 	"pisugar3-battery",
 };
 
+/*
+ * At power-off: arm the delayed output cut, with the restart-on-power bit set
+ * in the same write. SYS_OFF_MODE_POWER_OFF_PREPARE rather than POWER_OFF,
+ * because the I2C transfer needs interrupts and may sleep, and the cut is
+ * delayed anyway - the board takes the rail away after the machine has
+ * halted, not before.
+ */
+static int pisugar3_power_off_prepare(struct sys_off_data *data)
+{
+	struct pisugar3 *ps = data->cb_data;
+	struct i2c_client *client = ps->client;
+	int ret;
+
+	cancel_delayed_work_sync(&ps->work);
+
+	/* The delay first: the countdown starts when the output bit clears. */
+	ret = i2c_smbus_write_byte_data(client, PISUGAR3_REG_POWER_OFF_DELAY,
+					PISUGAR3_POWER_OFF_DELAY_S);
+	if (ret)
+		goto err;
+	ret = i2c_smbus_read_byte_data(client, PISUGAR3_REG_CTRL1);
+	if (ret < 0)
+		goto err;
+	ret = i2c_smbus_write_byte_data(client, PISUGAR3_REG_CTRL1,
+					(ret | PISUGAR3_CTRL1_RESTART_ON_POWER) &
+					~PISUGAR3_CTRL1_OUTPUT_ENABLE);
+	if (ret)
+		goto err;
+
+	dev_info(&client->dev,
+		 "output off in %d seconds, back on when external power returns\n",
+		 PISUGAR3_POWER_OFF_DELAY_S);
+	return NOTIFY_DONE;
+
+err:
+	dev_err(&client->dev, "cannot arm the output cut: %d\n", ret);
+	return NOTIFY_DONE;
+}
+
 static void pisugar3_firmware(struct pisugar3 *ps, char *buf, size_t len)
 {
 	size_t i;
@@ -383,13 +440,33 @@ static int pisugar3_probe(struct i2c_client *client)
 	if (ret)
 		return ret;
 
+	if (device_property_present(dev, "system-power-controller")) {
+		ret = devm_register_sys_off_handler(dev,
+						    SYS_OFF_MODE_POWER_OFF_PREPARE,
+						    SYS_OFF_PRIO_DEFAULT,
+						    pisugar3_power_off_prepare,
+						    ps);
+		if (ret)
+			return dev_err_probe(dev, ret,
+					     "failed to register the power-off handler\n");
+	}
+
 	pisugar3_firmware(ps, firmware, sizeof(firmware));
-	dev_info(dev, "PiSugar 3, firmware %s, %d.%03dV, %d%%%s\n", firmware,
+	dev_info(dev, "PiSugar 3, firmware %s, %d.%03dV, %d%%%s%s\n", firmware,
 		 ps->last.voltage_uv / 1000000,
 		 (ps->last.voltage_uv / 1000) % 1000, ps->last.capacity,
-		 ps->last.online ? ", external power" : "");
+		 ps->last.online ? ", external power" : "",
+		 device_property_present(dev, "system-power-controller") ?
+		 ", cuts the output at power-off" : "");
 
 	return 0;
+}
+
+static void pisugar3_shutdown(struct i2c_client *client)
+{
+	struct pisugar3 *ps = i2c_get_clientdata(client);
+
+	cancel_delayed_work_sync(&ps->work);
 }
 
 static int pisugar3_suspend(struct device *dev)
@@ -432,6 +509,7 @@ static struct i2c_driver pisugar3_driver = {
 		.pm		= pm_sleep_ptr(&pisugar3_pm_ops),
 	},
 	.probe		= pisugar3_probe,
+	.shutdown	= pisugar3_shutdown,
 	.id_table	= pisugar3_id,
 };
 module_i2c_driver(pisugar3_driver);

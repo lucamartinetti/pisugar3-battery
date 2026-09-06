@@ -4,6 +4,10 @@
  *
  *   dtoverlay=pisugar3
  *   dtoverlay=pisugar3,addr=0x5a    a board whose address has been changed
+ *   dtoverlay=pisugar3,power-off=off
+ *       leave the 5V output on after a system power-off - the default cuts
+ *       it a few seconds after the halt, and it comes back on when external
+ *       power is (re)connected
  *
  * The capacity table is the one the vendor's own daemon (pisugar-server)
  * uses when no custom curve is configured. It is a voltage lookup for a
@@ -47,11 +51,13 @@
 				compatible = "pisugar,pisugar3";
 				reg = <0x57>;
 				monitored-battery = <&pisugar3_cell>;
+				system-power-controller;
 			};
 		};
 	};
 
 	__overrides__ {
 		addr = <&pisugar3>,"reg:0";
+		power-off = <&pisugar3>,"system-power-controller?";
 	};
 };

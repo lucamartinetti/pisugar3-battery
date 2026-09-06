@@ -34,6 +34,13 @@ properties:
       voltages and capacity are used. The PiSugar 3 and 3 Plus ship with a
       cell; the 3 Air takes whichever cell the user fits.
 
+  system-power-controller:
+    type: boolean
+    description:
+      The board switches its 5V output off a few seconds after a system
+      power-off, and back on when external power is connected. Without it a
+      halted host keeps drawing from the cell until it is flat.
+
 required:
   - compatible
   - reg
@@ -61,5 +68,6 @@ examples:
         compatible = "pisugar,pisugar3";
         reg = <0x57>;
         monitored-battery = <&battery>;
+        system-power-controller;
       };
     };

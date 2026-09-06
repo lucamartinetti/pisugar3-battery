@@ -5,6 +5,8 @@
  *
  *   dtoverlay=pisugar3-air-5000mah
  *   dtoverlay=pisugar3-air-5000mah,addr=0x5a    a board on another address
+ *   dtoverlay=pisugar3-air-5000mah,power-off=off
+ *       leave the 5V output on after a system power-off; see pisugar3.dts
  *
  * The table is a discharge measured on one such cell in a Pi Zero 2 W
  * device drawing about a watt, 2026-09-05: 12 h 43 min from the charger to
@@ -58,11 +60,13 @@
 				compatible = "pisugar,pisugar3";
 				reg = <0x57>;
 				monitored-battery = <&pisugar3_cell>;
+				system-power-controller;
 			};
 		};
 	};
 
 	__overrides__ {
 		addr = <&pisugar3>,"reg:0";
+		power-off = <&pisugar3>,"system-power-controller?";
 	};
 };

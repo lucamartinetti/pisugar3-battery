@@ -46,10 +46,35 @@ percentage, which is a generous lookup rather than a measurement: on a 5000 mAh
 cell it read 64 % at 3.70 V with a third of the runtime left, and 8 % at the
 point the device had to shut down.
 
-**The driver never writes.** The board carries one register bit whose loss is
-not recoverable in software - "turn the output back on when external power
-returns", which on a device with no power button is the only way it ever
-comes back from a flat battery - and a read-only driver cannot lose it.
+**The driver writes exactly once, at power-off** - see below - and that write
+*sets* the one register bit whose loss is not recoverable in software: "turn
+the output back on when external power returns", which on a device with no
+power button is the only way it ever comes back from a flat battery. Nothing
+here ever clears it.
+
+## Power-off
+
+A halted Raspberry Pi still draws tens of milliamps, and a UPS board that
+keeps feeding it will run the cell flat and then some. So with
+`system-power-controller` on the node - both overlays set it - the driver
+registers a system power-off handler: at the end of `poweroff`, after
+userspace is gone and just before the CPU halts, it asks the board to switch
+its 5V output off five seconds later, with the restart-on-power bit set in
+the same write. The rail goes, the draw stops, and the device comes back
+when external power is (re)connected. `dmesg` shows it on the way down:
+
+```
+pisugar3-battery 1-0057: output off in 5 seconds, back on when external power returns
+```
+
+That applies to every power-off, plugged in or not; on a plugged-in device
+the board keeps charging the cell with the output off, and a replug brings
+the Pi up - the board's restart is edge-triggered, so leaving the cable in
+does not. A reboot is untouched. To keep the old behaviour, a halt with the
+rail live: `dtoverlay=pisugar3,power-off=off`.
+
+The countdown lives in the board, and its datasheet calls the timing
+inaccurate. On firmware v1.3.4 it has only ever been seen to run long.
 
 ## Install on Raspberry Pi OS
 
@@ -67,6 +92,7 @@ Then pick an overlay and add it to `/boot/firmware/config.txt`:
 dtoverlay=pisugar3                 # PiSugar 3 / 3 Plus, the vendor's default curve
 dtoverlay=pisugar3-air-5000mah     # a 3 Air with a 5000 mAh cell, a measured curve
 dtoverlay=pisugar3,addr=0x5a       # a board whose I2C address was changed
+dtoverlay=pisugar3,power-off=off   # halt with the 5V output left on
 ```
 
 `dtparam=i2c_arm=on` has to be there too. Reboot, or load it now:
